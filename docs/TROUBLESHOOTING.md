@@ -49,7 +49,7 @@ curl "https://<你的公网域名>/whatsapp/webhook?hub.mode=subscribe&hub.verif
 
 | 码 | 含义 | 处理 |
 |----|------|------|
-| `190` | Access Token 失效或过期 | 换新 Token。临时令牌有效期 24 小时，长期方案用 System User 长期令牌 |
+| `190` | Access Token 失效或过期 | 换新 Token。API Setup 页发的临时令牌很短（**实测约 1 小时**，不要按 24 小时规划），长期方案用 System User 长期令牌 |
 | `131047` | 24 小时回复窗口已关闭 | 只能用模板消息，本 Demo 不含模板发送 |
 | `131030` | 测试收件人未加入允许列表 | 在 Meta 后台把该号码加进测试接收人 |
 | `131005` | 同上（收件人不在允许列表） | 同上 |
@@ -58,12 +58,17 @@ curl "https://<你的公网域名>/whatsapp/webhook?hub.mode=subscribe&hub.verif
 快速核对当前 Token 和号码是否还有效：
 
 ```sh
-set -a && . .env && set +a
-curl -s "https://graph.facebook.com/v25.0/$WSB_PHONE_NUMBER_ID" \
-  -H "Authorization: Bearer $WSB_ACCESS_TOKEN"
+npm run diagnose
 ```
 
-返回 `190` 说明是**令牌**问题，与收件人白名单无关——纯读取调用也会失败。
+只读调用，输出「有效 / 令牌失效 / 号码不匹配 / 网络不通」四种结论，并对 Meta 回显的错误做脱敏。
+判成 `190` 说明是**令牌**问题，与收件人白名单无关——纯读取调用不涉及允许列表。
+网络不通时报「未验证」，不会把连不上说成令牌失效。
+
+> ⚠️ 不要用 `set -a && . .env` + `curl -H "Authorization: Bearer $WSB_ACCESS_TOKEN"` 这种写法
+> （本文件 v0.2.1 及之前推荐过，是个错误）：`.env` 被 `.` 进 shell 等于**当脚本执行**，凭证里
+> 一个 `$` 或反引号就会被求值；而展开进 `curl` 参数的 Token 在调用期间对本机所有进程可见
+> （`/proc/<pid>/cmdline`）。`npm run diagnose` 走项目自己的加载器，Token 只出现在请求头里。
 
 ## 其他
 

@@ -13,6 +13,7 @@
     "setup": "node scripts/setup.js",
     "webhook": "node scripts/webhook.js",
     "check": "node scripts/check.js",
+    "diagnose": "node scripts/diagnose.js",
     "start": "node src/index.js",
     "demo": "node scripts/demo.js",
     "send": "node scripts/send.js",
