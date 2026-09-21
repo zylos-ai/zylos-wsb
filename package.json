@@ -1,6 +1,6 @@
 {
   "name": "zylos-wsb",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "Minimal WhatsApp Business Cloud API channel demo for Zylos",
   "license": "MIT",
