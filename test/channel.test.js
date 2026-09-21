@@ -174,6 +174,27 @@ test('the message log rotates at the limit, keeps N files and loses no message i
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
 
+test('startup re-secures archives, not just the live file', async t => {
+  const dir = temp(t);
+  // Rotation inherits 0600 through rename, but a file restored from a backup or
+  // copied by hand does not - and DATA.md promises 0600 on every start.
+  for (const name of ['messages.ndjson', 'messages.ndjson.1', 'messages.ndjson.2', 'messages.ndjson.10']) {
+    fs.writeFileSync(path.join(dir, name), '{}\n', { mode: 0o644 });
+    fs.chmodSync(path.join(dir, name), 0o644);
+  }
+  fs.writeFileSync(path.join(dir, 'unrelated.txt'), 'x\n', { mode: 0o644 });
+  fs.chmodSync(path.join(dir, 'unrelated.txt'), 0o644);
+
+  createMessageHandler({ ...base, mode: 'log', dataDir: dir });
+
+  for (const name of ['messages.ndjson', 'messages.ndjson.1', 'messages.ndjson.2', 'messages.ndjson.10']) {
+    assert.equal(fs.statSync(path.join(dir, name)).mode & 0o777, 0o600, `${name} must be private`);
+  }
+  assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
+  // Only our own files: the cleanup must not reach into unrelated content.
+  assert.equal(fs.statSync(path.join(dir, 'unrelated.txt')).mode & 0o777, 0o644);
+});
+
 test('rotation is opt-out and its limits are validated instead of silently coerced', async t => {
   const dir = temp(t);
   const file = path.join(dir, 'messages.ndjson');

@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { buildEndpoint, extractMessages, forwardToC4, sendText } from './channel.js';
+import { LIVE, secureDataFiles } from './store.js';
 
 function equal(left, right) {
   const a = Buffer.from(String(left));
@@ -43,8 +44,10 @@ export function rotateIfFull(file, maxBytes, keepFiles) {
 export function createMessageHandler(config, { bridge = forwardToC4, send = sendText } = {}) {
   fs.mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
   fs.chmodSync(config.dataDir, 0o700);
-  const file = path.join(config.dataDir, 'messages.ndjson');
-  if (fs.existsSync(file)) fs.chmodSync(file, 0o600);
+  const file = path.join(config.dataDir, LIVE);
+  // Archives too, not just the live file: they hold the same customer data and
+  // the same 0600 promise, and rotation is not the only way one can appear.
+  secureDataFiles(config.dataDir);
   return async (message) => {
     fs.appendFileSync(file, JSON.stringify({ receivedAt: new Date().toISOString(), ...message }) + '\n', { mode: 0o600 });
     rotateIfFull(file, config.dataMaxBytes, config.dataKeepFiles);
