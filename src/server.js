@@ -1,0 +1,105 @@
+import http from 'node:http';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { buildEndpoint, extractMessages, forwardToC4, sendText } from './channel.js';
+
+function equal(left, right) {
+  const a = Buffer.from(String(left));
+  const b = Buffer.from(String(right));
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+export function validSignature(raw, signature, secret) {
+  return !!secret && typeof signature === 'string' && /^sha256=[a-f0-9]{64}$/i.test(signature) &&
+    equal(signature.toLowerCase(), `sha256=${createHmac('sha256', secret).update(raw).digest('hex')}`);
+}
+
+export function createMessageHandler(config, { bridge = forwardToC4, send = sendText } = {}) {
+  fs.mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(config.dataDir, 0o700);
+  const file = path.join(config.dataDir, 'messages.ndjson');
+  if (fs.existsSync(file)) fs.chmodSync(file, 0o600);
+  return async (message) => {
+    fs.appendFileSync(file, JSON.stringify({ receivedAt: new Date().toISOString(), ...message }) + '\n', { mode: 0o600 });
+    // Non-text messages remain inspectable in the log; this demo only replies to text.
+    if (message.type !== 'text' || !message.text) return;
+    if (config.mode === 'c4') await bridge(config, message);
+    if (config.mode === 'echo') {
+      const reply = `收到：${Array.from(message.text).slice(0, 4093).join('')}`;
+      await send(config, buildEndpoint(message), reply);
+    }
+  };
+}
+
+export function createWebhookServer(config, { handleMessage = createMessageHandler(config), logger = console } = {}) {
+  const completed = new Map();
+  const inFlight = new Map();
+  const ttl = 24 * 60 * 60 * 1000;
+  let activeRequests = 0;
+
+  async function processMessage(message) {
+    const now = Date.now();
+    for (const [id, time] of completed) if (now - time >= ttl) completed.delete(id);
+    if (completed.has(message.id)) return;
+    if (inFlight.has(message.id)) return inFlight.get(message.id);
+    const work = (async () => {
+      await handleMessage(message);
+      completed.set(message.id, Date.now());
+      if (completed.size > 10000) completed.delete(completed.keys().next().value);
+      logger.info(`[wsb] Received ${message.type} message`);
+    })();
+    inFlight.set(message.id, work);
+    try { await work; } finally { inFlight.delete(message.id); }
+  }
+
+  const server = http.createServer(async (req, res) => {
+    const respond = (code, text) => {
+      if (res.destroyed || res.writableEnded) return;
+      res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end(text);
+    };
+    let url;
+    try { url = new URL(req.url || '/', 'http://localhost'); } catch { return respond(400, 'Invalid URL'); }
+    if (url.pathname === '/health' && req.method === 'GET') return respond(200, 'ok');
+    if (!['/whatsapp/webhook', '/webhook'].includes(url.pathname)) return respond(404, 'Not found');
+    if (req.method === 'GET') {
+      const token = url.searchParams.get('hub.verify_token');
+      const challenge = url.searchParams.get('hub.challenge');
+      return url.searchParams.get('hub.mode') === 'subscribe' && challenge !== null &&
+        config.verifyToken && token && equal(token, config.verifyToken)
+        ? respond(200, challenge) : respond(403, 'Verification failed');
+    }
+    if (req.method !== 'POST') return respond(405, 'Method not allowed');
+    if (activeRequests >= 8) return respond(503, 'Busy; retry later');
+    activeRequests++;
+    try {
+      const chunks = [];
+      let size = 0;
+      for await (const chunk of req) {
+        size += chunk.length;
+        if (size > 1024 * 1024) return respond(413, 'Payload too large');
+        chunks.push(chunk);
+      }
+      const raw = Buffer.concat(chunks);
+      if (!validSignature(raw, req.headers['x-hub-signature-256'], config.appSecret)) return respond(401, 'Invalid signature');
+      let body;
+      try { body = JSON.parse(raw.toString('utf8')); } catch { return respond(400, 'Invalid JSON'); }
+      if (body?.object !== 'whatsapp_business_account') return respond(400, 'Invalid webhook object');
+      const messages = extractMessages(body, config.phoneNumberId);
+      for (const message of messages) await processMessage(message);
+      // Status-only callbacks and messages for other phone numbers need no reply.
+      respond(200, 'EVENT_RECEIVED');
+    } catch (error) {
+      // Channel adapters sanitize remote errors; never log the request body or headers.
+      logger.error(`[wsb] Processing failed: ${error.message}. Returning 503 for retry.`);
+      respond(503, 'Processing failed; retry later');
+    } finally {
+      activeRequests--;
+    }
+  });
+  server.requestTimeout = 15000;
+  server.headersTimeout = 10000;
+  server.maxConnections = 32;
+  return server;
+}
