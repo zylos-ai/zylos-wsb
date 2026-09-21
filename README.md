@@ -10,7 +10,8 @@ WhatsApp ← Meta Cloud API ← scripts/send.js ← C4 回复
 渠道名 `wsb`，默认端口 `47832`，无第三方依赖。本包不包含 Access Token、App Secret、个人手机号或聊天记录。
 
 > ⚠️ 这是**内部演示**，不是生产能力。运行时会把客户手机号、昵称和消息正文明文写入本地
-> `data/messages.ndjson`，且**当前没有自动清理**。部署前请先读
+> `data/messages.ndjson`。默认按体积轮转（5 MiB × 3 份，**被挤出的最老归档会被真的删掉**），
+> 单个客户的删除请求用 `npm run erase-contact` 单独处理。部署前请先读
 > [数据边界与留存契约](docs/DATA.md)。
 
 本页是**最短可运行路径**。其余内容：
