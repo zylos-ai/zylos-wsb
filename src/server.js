@@ -15,6 +15,28 @@ export function validSignature(raw, signature, secret) {
     equal(signature.toLowerCase(), `sha256=${createHmac('sha256', secret).update(raw).digest('hex')}`);
 }
 
+// Bounded retention for stored customer messages. Rotation runs *after* the
+// append, so a message is never dropped by the rotation that its own arrival
+// triggered, and every archive holds at least one complete record.
+// Archives are messages.ndjson.1 (newest) .. .N-1 (oldest); N counts the live
+// file, so keepFiles=3 means the live file plus two archives. maxBytes=0 keeps
+// the previous unbounded behaviour.
+export function rotateIfFull(file, maxBytes, keepFiles) {
+  if (!maxBytes) return false;
+  let size;
+  try { size = fs.statSync(file).size; } catch { return false; }
+  if (size < maxBytes) return false;
+  if (keepFiles < 2) { fs.rmSync(file, { force: true }); return true; }
+  fs.rmSync(`${file}.${keepFiles - 1}`, { force: true });
+  for (let i = keepFiles - 2; i >= 1; i--) {
+    try { fs.renameSync(`${file}.${i}`, `${file}.${i + 1}`); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+  // rename keeps the inode, so the archive keeps the live file's 0600 mode.
+  fs.renameSync(file, `${file}.1`);
+  return true;
+}
+
 export function createMessageHandler(config, { bridge = forwardToC4, send = sendText } = {}) {
   fs.mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
   fs.chmodSync(config.dataDir, 0o700);
@@ -22,6 +44,7 @@ export function createMessageHandler(config, { bridge = forwardToC4, send = send
   if (fs.existsSync(file)) fs.chmodSync(file, 0o600);
   return async (message) => {
     fs.appendFileSync(file, JSON.stringify({ receivedAt: new Date().toISOString(), ...message }) + '\n', { mode: 0o600 });
+    rotateIfFull(file, config.dataMaxBytes, config.dataKeepFiles);
     // Non-text messages remain inspectable in the log; this demo only replies to text.
     if (message.type !== 'text' || !message.text) return;
     if (config.mode === 'c4') await bridge(config, message);

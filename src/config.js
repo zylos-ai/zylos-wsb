@@ -13,16 +13,26 @@ export function loadEnvironment() {
   if (fs.existsSync(zylosFile)) process.loadEnvFile(zylosFile);
 }
 
+// An unset or empty variable takes the default; an explicit 0 is honored, so
+// rotation can be turned off deliberately rather than only by accident.
+function numeric(value, fallback) {
+  return Number(value === undefined || value === '' ? fallback : value);
+}
+
 export function getConfig(env = process.env) {
   const port = Number(env.WSB_PORT || 47832);
   const mode = env.WSB_MODE || 'log';
   const graphVersion = env.WSB_GRAPH_VERSION || 'v25.0';
   const zylosDir = path.resolve(env.ZYLOS_DIR || path.join(os.homedir(), 'zylos'));
+  const dataMaxBytes = numeric(env.WSB_DATA_MAX_BYTES, 5 * 1024 * 1024);
+  const dataKeepFiles = numeric(env.WSB_DATA_KEEP_FILES, 3);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid WSB_PORT');
   if (!['log', 'echo', 'c4'].includes(mode)) throw new Error('WSB_MODE must be log, echo or c4');
   if (!/^v\d+\.\d+$/.test(graphVersion)) throw new Error('Invalid WSB_GRAPH_VERSION');
+  if (!Number.isInteger(dataMaxBytes) || dataMaxBytes < 0) throw new Error('WSB_DATA_MAX_BYTES must be a non-negative integer (0 disables rotation)');
+  if (!Number.isInteger(dataKeepFiles) || dataKeepFiles < 1) throw new Error('WSB_DATA_KEEP_FILES must be a positive integer');
   return {
-    port, mode, graphVersion, zylosDir,
+    port, mode, graphVersion, zylosDir, dataMaxBytes, dataKeepFiles,
     verifyToken: env.WSB_VERIFY_TOKEN || '',
     appSecret: env.WSB_APP_SECRET || '',
     phoneNumberId: env.WSB_PHONE_NUMBER_ID || '',

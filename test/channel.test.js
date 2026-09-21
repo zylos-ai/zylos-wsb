@@ -8,7 +8,7 @@ import { createHmac } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { getConfig, validateReceiveConfig } from '../src/config.js';
-import { createWebhookServer, createMessageHandler } from '../src/server.js';
+import { createWebhookServer, createMessageHandler, rotateIfFull } from '../src/server.js';
 import { buildEndpoint, sendText, forwardToC4 } from '../src/channel.js';
 import { readMessage } from '../scripts/send.js';
 
@@ -140,6 +140,58 @@ test('non-text messages are saved without generating fake text replies', async t
   await post(url, payload([image]));
   const saved = JSON.parse(fs.readFileSync(path.join(dir, 'messages.ndjson'), 'utf8'));
   assert.equal(saved.raw.image.id, 'media-id');
+});
+
+test('the message log rotates at the limit, keeps N files and loses no message in between', async t => {
+  const dir = temp(t);
+  const file = path.join(dir, 'messages.ndjson');
+  const handler = createMessageHandler({ ...base, mode: 'log', dataDir: dir, dataMaxBytes: 500, dataKeepFiles: 3 });
+  const ids = name => fs.existsSync(file + name)
+    ? fs.readFileSync(file + name, 'utf8').trim().split('\n').map(line => JSON.parse(line).id) : [];
+  const sent = [];
+  for (let i = 0; i < 30; i++) {
+    sent.push(`wamid.${i}`);
+    await handler({ ...incoming(`wamid.${i}`), text: 'x'.repeat(100) });
+    assert.ok(!fs.existsSync(file) || fs.statSync(file).size < 500, 'the live file never stays over the limit');
+  }
+  assert.ok(fs.existsSync(`${file}.2`), 'both archives must be kept');
+  assert.equal(fs.existsSync(`${file}.3`), false, 'nothing beyond keepFiles may survive');
+  // Rotation renames rather than copies, so an archive keeps the live file's mode.
+  for (const name of ['.1', '.2']) assert.equal(fs.statSync(file + name).mode & 0o777, 0o600);
+  // Oldest archive first, live file last: the surviving records must be an
+  // unbroken suffix of what arrived — rotation drops whole files, never lines.
+  const kept = ['.2', '.1', ''].flatMap(ids);
+  assert.ok(kept.length > 3 && kept.length < sent.length, `expected a trimmed tail, got ${kept.length}`);
+  assert.deepEqual(kept, sent.slice(-kept.length));
+
+  // A rotation leaves no live file behind; the next message must recreate it,
+  // still private, instead of being dropped.
+  let guard = 0;
+  while (fs.existsSync(file) && guard++ < 10) await handler({ ...incoming(`wamid.f${guard}`), text: 'x'.repeat(100) });
+  assert.equal(fs.existsSync(file), false, 'a rotation should have consumed the live file');
+  await handler({ ...incoming('wamid.resumed'), text: 'hi' });
+  assert.deepEqual(ids(''), ['wamid.resumed']);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+});
+
+test('rotation is opt-out and its limits are validated instead of silently coerced', async t => {
+  const dir = temp(t);
+  const file = path.join(dir, 'messages.ndjson');
+  const handler = createMessageHandler({ ...base, mode: 'log', dataDir: dir, dataMaxBytes: 0, dataKeepFiles: 3 });
+  for (let i = 0; i < 20; i++) await handler({ ...incoming(`wamid.${i}`), text: 'x'.repeat(100) });
+  assert.equal(fs.readFileSync(file, 'utf8').trim().split('\n').length, 20);
+  assert.equal(fs.existsSync(`${file}.1`), false, 'maxBytes 0 must disable rotation entirely');
+  // keepFiles 1 means "live file only": the full file is discarded, not archived.
+  assert.equal(rotateIfFull(file, 1, 1), true);
+  assert.equal(fs.existsSync(file), false);
+  assert.equal(fs.existsSync(`${file}.1`), false);
+
+  assert.equal(getConfig({}).dataMaxBytes, 5 * 1024 * 1024);
+  assert.equal(getConfig({}).dataKeepFiles, 3);
+  assert.equal(getConfig({ WSB_DATA_MAX_BYTES: '0' }).dataMaxBytes, 0);
+  assert.throws(() => getConfig({ WSB_DATA_MAX_BYTES: '-1' }), /WSB_DATA_MAX_BYTES/);
+  assert.throws(() => getConfig({ WSB_DATA_MAX_BYTES: '5mb' }), /WSB_DATA_MAX_BYTES/);
+  assert.throws(() => getConfig({ WSB_DATA_KEEP_FILES: '0' }), /WSB_DATA_KEEP_FILES/);
 });
 
 test('C4 uses a real child process with correct arguments and escaped customer content', async t => {
