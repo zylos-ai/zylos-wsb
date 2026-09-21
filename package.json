@@ -3,6 +3,10 @@
   "version": "0.1.3",
   "private": true,
   "description": "Minimal WhatsApp Business Cloud API channel demo for Zylos",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/zylos-ai/zylos-wsb.git" },
+  "homepage": "https://github.com/zylos-ai/zylos-wsb#readme",
+  "bugs": { "url": "https://github.com/zylos-ai/zylos-wsb/issues" },
   "type": "module",
   "engines": { "node": ">=20.20.0" },
   "scripts": {
