@@ -16,6 +16,7 @@
     "start": "node src/index.js",
     "demo": "node scripts/demo.js",
     "send": "node scripts/send.js",
+    "erase-contact": "node scripts/erase-contact.js",
     "check:syntax": "find src scripts test -name '*.js' -exec node --check {} +",
     "test": "node --test test/*.test.js"
   }
