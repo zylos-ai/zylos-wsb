@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A newer push to the same branch makes the previous run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor declared in engines, and the current LTS line.
+        node: ['20.20.0', '22.x']
+    name: verify (node ${{ matrix.node }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # The channel has no runtime dependencies, so there is nothing to install
+      # and no lockfile to restore. Keep it that way: a dependency added without
+      # a lockfile would make CI and production disagree silently.
+      - name: Assert the channel stays dependency-free
+        run: node -e "const p=require('./package.json');for(const f of ['dependencies','peerDependencies','optionalDependencies']){const d=p[f]||{};if(Object.keys(d).length)throw new Error(f+' added without a lockfile; add package-lock.json and npm ci to CI first.')}"
+
+      - name: Syntax check
+        run: npm run check:syntax
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Local demo (no Meta calls, no real messages)
+        run: npm run demo
+
+      - name: Package preview
+        run: npm pack --dry-run
+
+      # .env and data/ are gitignored; this guards the packed tarball too, so a
+      # future "files"/.npmignore change cannot ship credentials or customer data.
+      - name: Assert no secrets or customer data in the package
+        run: |
+          npm pack --dry-run --json > /tmp/pack.json
+          node -e "
+            const files = require('/tmp/pack.json')[0].files.map(f => f.path);
+            const bad = files.filter(f => f === '.env' || f.startsWith('data/') || f.endsWith('.log'));
+            if (bad.length) throw new Error('Refusing to ship: ' + bad.join(', '));
+            console.log('Package clean: ' + files.length + ' files, no .env / data / logs.');
+          "
