@@ -9,6 +9,18 @@ WhatsApp ← Meta Cloud API ← scripts/send.js ← C4 回复
 
 渠道名 `wsb`，默认端口 `47832`，无第三方依赖。本包不包含 Access Token、App Secret、个人手机号或聊天记录。
 
+> ⚠️ 这是**内部演示**，不是生产能力。运行时会把客户手机号、昵称和消息正文明文写入本地
+> `data/messages.ndjson`，且**当前没有自动清理**。部署前请先读
+> [数据边界与留存契约](docs/DATA.md)。
+
+本页是**最短可运行路径**。其余内容：
+
+| 文档 | 内容 |
+| --- | --- |
+| [docs/DATA.md](docs/DATA.md) | 存了什么客户数据、存多久、谁负责清理 |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | 收发不通怎么定位、Meta 错误码 |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 本地验证、CI、范围与限制、回复接口 |
+
 ## 服务器安装：自动提供 Webhook 地址
 
 需要已有的 Zylos、`comm-bridge` 和 Node.js >= 20.20。Zylos 的 HTTP 层应已配置公网域名与 HTTPS（通常在 `zylos init` 时设置）。Channel 复用这个域名，不需要另开公网端口。
@@ -122,7 +134,7 @@ tail -f data/messages.ndjson
 
 Meta 控制台的“发送样例回调”只证明回调地址可达。样例的 Phone Number ID 不匹配时会被忽略，返回 200 不代表真实收发已通过。
 
-若要先隔离 Zylos 排查，把 `.env` 的 `WSB_MODE` 改成 `echo` 并重启，预期收到 `收到：你发的内容`；完成后切回 `c4` 并重启。
+若要先隔离 Zylos 排查，见 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) 的 `echo` 模式。
 
 ## 在服务器保持运行
 
@@ -139,34 +151,15 @@ pm2 logs zylos-wsb
 ## 不连接 Meta 的本地验证
 
 ```sh
-npm run demo
 npm test
+npm run demo
 ```
 
-`demo` 使用临时 Webhook、模拟 Meta API 和模拟 C4 子进程，验证签名、接收及回复格式。无需凭证，不连接真实 Meta / Zylos，不发送真实消息。
+无需凭证，不连接真实 Meta / Zylos，不发送真实消息。细节、CI 与零依赖约束见
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
-## 范围与排查
+## 接下来
 
-- 仅文字收发。图片等事件记录原始信息，不下载附件、不自动回复。
-- Channel 本身没有客户白名单；Meta 测试号码仍受平台的测试接收人限制。
-- 不做客户身份识别、自动绑定 owner、分配 agent、多客户记忆隔离或管理页面。消息进入当前 Zylos 会话；本包定位是内部演示。
-- 普通回复在客户最后一条消息后的 24 小时窗口内使用；窗口外模板发送不在此 Demo 中。
-- 重复消息在进程内去重，处理失败返回 503；重启会清空去重记录，失败重试可能留下重复日志。无数据库或持久队列，不承诺恰好处理一次。
-- `check` 成功但没有回调：检查公网地址、端口、`messages` 字段订阅、WABA 的 App 订阅和 Phone Number ID。
-- `webhook` 提示未找到匹配路由：查看 Zylos 安装输出中的 Caddy 错误，并核对端口；仅执行 `npm run setup` 不会自动配置服务器路由。
-- 已收到回调但 Zylos 无回复：确认 `WSB_MODE=c4`、Channel 链接、C4 dispatcher、主会话状态和发送日志。
-- Meta 错误 `190`：令牌失效。`131047`：回复窗口关闭。`131030`：测试收件人未加入允许列表。`131031`：账号受限，需在 Meta 侧处理。
-- API 超时可能已发送；确认手机是否收到后再重试。Meta 返回消息 ID 代表接受请求，不保证最终送达。
-- 单进程运行。更改端口时，ngrok / 反向代理以及 `SKILL.md` 的 route target 都应对应更新。
-
-## 给 Zylos 的回复接口
-
-用入站消息给出的 endpoint 原样回复，保留客户号码和被引用的消息 ID：
-
-```sh
-node ~/zylos/.claude/skills/comm-bridge/scripts/c4-send.js wsb '<wa_id>|type:dm|msg:<wamid>' <<'EOF'
-回复内容
-EOF
-```
-
-`scripts/send.js` 支持 C4 的位置参数和 stdin，支持最多 4096 个字符的文字及 `[SKIP]`。客户消息按外部内容处理，不赋予管理员权限。
+- 收发不通、Meta 错误码 → [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+- 客户数据存了什么、怎么清理 → [docs/DATA.md](docs/DATA.md)
+- 范围与限制、给 Zylos 的回复接口 → [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
