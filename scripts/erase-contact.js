@@ -6,8 +6,10 @@ import fs, { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getConfig, loadEnvironment } from '../src/config.js';
+import { dataFiles } from '../src/store.js';
 
-const LIVE = 'messages.ndjson';
+// Enumerated from the directory, not globbed — see src/store.js for why.
+export { dataFiles };
 
 // Only digits are compared: the log stores bare numbers, but people paste
 // +86 138-0013-8000 from a chat window.
@@ -17,20 +19,49 @@ export function normalize(number) {
   return digits;
 }
 
-// Enumerated from the directory, not globbed: keepFiles is any integer >= 2, so
-// archives can reach .10 and beyond, which a shell [0-9] pattern silently misses.
-export function dataFiles(dataDir) {
-  const archive = /^messages\.ndjson\.(\d+)$/;
-  return fs.readdirSync(dataDir)
-    .filter(name => name === LIVE || archive.test(name))
-    .sort((a, b) => (Number(a.match(archive)?.[1] ?? 0)) - (Number(b.match(archive)?.[1] ?? 0)))
-    .map(name => path.join(dataDir, name));
+export class ConcurrentWriteError extends Error {
+  constructor(file) {
+    super(`${path.basename(file)} changed while it was being rewritten; refusing to commit. ` +
+      'A message that arrived mid-cleanup would be destroyed by the rename. ' +
+      'Stop the channel first (pm2 stop zylos-wsb), then re-run — erasure is idempotent, so a repeat run is safe.');
+    this.name = 'ConcurrentWriteError';
+  }
+}
+
+// Identity and length of a stored file at one instant.
+export function snapshot(file) {
+  const stats = fs.statSync(file);
+  return `${stats.ino}:${stats.size}:${stats.mtimeMs}`;
+}
+
+// Commit only if the file is still the one that was read. Erasure is a
+// read-modify-write and the channel appends to the same path, so a message
+// landing between the read and the rename would be thrown away with the old
+// inode. This is a check, not a lock: the writer is not asked to cooperate, so
+// an append in the microseconds between the final check and the rename is
+// still lost. Stopping the channel is the guarantee; this downgrades the
+// common case from silent data loss to a refusal the operator can act on.
+export function replaceIfUnchanged(file, content, expected) {
+  if (snapshot(file) !== expected) throw new ConcurrentWriteError(file);
+  const temp = `${file}.erase-tmp`;
+  fs.writeFileSync(temp, content, { mode: 0o600 });
+  fs.chmodSync(temp, 0o600); // An existing temp file keeps its own mode.
+  try {
+    if (snapshot(file) !== expected) throw new ConcurrentWriteError(file);
+    fs.renameSync(temp, file); // rename carries 0600 over; a copy would not.
+  } catch (error) {
+    fs.rmSync(temp, { force: true });
+    throw error;
+  }
 }
 
 // Records are matched by parsing each line and reading `from`, never by
 // substring: the number may also appear inside someone else's message text, and
 // those records belong to a different data subject.
 function filterFile(file, number, dryRun) {
+  // Taken before the read, so the commit check below also catches an append
+  // that landed while the file was being read.
+  const before = snapshot(file);
   const original = fs.readFileSync(file, 'utf8');
   const lines = original.split('\n').filter(line => line !== '');
   let unreadable = 0;
@@ -45,12 +76,7 @@ function filterFile(file, number, dryRun) {
   const removed = lines.length - kept.length;
   // Emptied, not deleted: the live file is reopened by append, and a missing
   // archive would read as "these messages were never stored".
-  if (removed && !dryRun) {
-    const temp = `${file}.erase-tmp`;
-    fs.writeFileSync(temp, kept.map(line => line + '\n').join(''), { mode: 0o600 });
-    fs.chmodSync(temp, 0o600); // An existing temp file keeps its own mode.
-    fs.renameSync(temp, file); // rename carries 0600 over; a copy would not.
-  }
+  if (removed && !dryRun) replaceIfUnchanged(file, kept.map(line => line + '\n').join(''), before);
   return { file, scanned: lines.length, removed, kept: kept.length, unreadable };
 }
 

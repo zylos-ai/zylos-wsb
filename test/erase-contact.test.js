@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { eraseContact, dataFiles, normalize } from '../scripts/erase-contact.js';
+import { eraseContact, dataFiles, normalize, snapshot, replaceIfUnchanged, ConcurrentWriteError } from '../scripts/erase-contact.js';
 
 const TARGET = '8613800138000';
 const OTHER = '15551234567';
@@ -77,4 +77,25 @@ test('a dry run reports the same count and writes nothing', async t => {
 
 test('a missing number is refused instead of matching everything', () => {
   for (const bad of [undefined, '', '   ', '+++']) assert.throws(() => normalize(bad), /Usage/);
+});
+
+test('a message arriving mid-cleanup is refused, not silently overwritten', async t => {
+  const dir = temp(t);
+  const file = write(dir, 'messages.ndjson', [line(TARGET, 'a'), line(OTHER, 'b')]);
+  const before = snapshot(file);
+  // The channel appends while the rewrite is in flight (src/server.js). The
+  // old code renamed over this record and it was gone; now the commit refuses.
+  fs.appendFileSync(file, JSON.stringify(line(OTHER, 'arrived during cleanup')) + '\n');
+
+  assert.throws(() => replaceIfUnchanged(file, 'rewritten\n', before), ConcurrentWriteError);
+  assert.match(fs.readFileSync(file, 'utf8'), /arrived during cleanup/);
+  assert.equal(fs.existsSync(`${file}.erase-tmp`), false);
+});
+
+test('an untouched file still commits, and the refusal does not fire spuriously', async t => {
+  const dir = temp(t);
+  const file = write(dir, 'messages.ndjson', [line(TARGET, 'a'), line(OTHER, 'b')]);
+  assert.equal(eraseContact(dir, TARGET).removed, 1);
+  assert.equal(fs.readFileSync(file, 'utf8').trim().split('\n').length, 1);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
