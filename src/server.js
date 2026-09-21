@@ -23,10 +23,13 @@ export function validSignature(raw, signature, secret) {
 // the previous unbounded behaviour.
 export function rotateIfFull(file, maxBytes, keepFiles) {
   if (!maxBytes) return false;
+  // Refused rather than honoured: with no archive to rename into, rotation could
+  // only drop the live file, eating the message that just triggered it. config.js
+  // rejects the same value at startup; this guards direct callers.
+  if (!(keepFiles >= 2)) throw new RangeError('keepFiles must be >= 2; pass maxBytes 0 to disable rotation');
   let size;
   try { size = fs.statSync(file).size; } catch { return false; }
   if (size < maxBytes) return false;
-  if (keepFiles < 2) { fs.rmSync(file, { force: true }); return true; }
   fs.rmSync(`${file}.${keepFiles - 1}`, { force: true });
   for (let i = keepFiles - 2; i >= 1; i--) {
     try { fs.renameSync(`${file}.${i}`, `${file}.${i + 1}`); }

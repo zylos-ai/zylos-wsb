@@ -181,17 +181,22 @@ test('rotation is opt-out and its limits are validated instead of silently coerc
   for (let i = 0; i < 20; i++) await handler({ ...incoming(`wamid.${i}`), text: 'x'.repeat(100) });
   assert.equal(fs.readFileSync(file, 'utf8').trim().split('\n').length, 20);
   assert.equal(fs.existsSync(`${file}.1`), false, 'maxBytes 0 must disable rotation entirely');
-  // keepFiles 1 means "live file only": the full file is discarded, not archived.
-  assert.equal(rotateIfFull(file, 1, 1), true);
-  assert.equal(fs.existsSync(file), false);
-  assert.equal(fs.existsSync(`${file}.1`), false);
+  // keepFiles 1 would leave nowhere to archive to, so rotation would have to drop
+  // the live file - including the message that just triggered it. Refused at both
+  // the config boundary and the function itself, and the live file stays intact.
+  assert.throws(() => rotateIfFull(file, 1, 1), RangeError);
+  assert.equal(fs.readFileSync(file, 'utf8').trim().split('\n').length, 20);
 
   assert.equal(getConfig({}).dataMaxBytes, 5 * 1024 * 1024);
   assert.equal(getConfig({}).dataKeepFiles, 3);
   assert.equal(getConfig({ WSB_DATA_MAX_BYTES: '0' }).dataMaxBytes, 0);
+  assert.equal(getConfig({ WSB_DATA_KEEP_FILES: '2' }).dataKeepFiles, 2);
   assert.throws(() => getConfig({ WSB_DATA_MAX_BYTES: '-1' }), /WSB_DATA_MAX_BYTES/);
   assert.throws(() => getConfig({ WSB_DATA_MAX_BYTES: '5mb' }), /WSB_DATA_MAX_BYTES/);
   assert.throws(() => getConfig({ WSB_DATA_KEEP_FILES: '0' }), /WSB_DATA_KEEP_FILES/);
+  // The value v0.2.0 accepted and this release no longer does, with the escape
+  // hatch named in the message so the fix is obvious from the error alone.
+  assert.throws(() => getConfig({ WSB_DATA_KEEP_FILES: '1' }), /WSB_DATA_KEEP_FILES.*WSB_DATA_MAX_BYTES=0/s);
 });
 
 test('C4 uses a real child process with correct arguments and escaped customer content', async t => {

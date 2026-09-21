@@ -30,7 +30,10 @@ export function getConfig(env = process.env) {
   if (!['log', 'echo', 'c4'].includes(mode)) throw new Error('WSB_MODE must be log, echo or c4');
   if (!/^v\d+\.\d+$/.test(graphVersion)) throw new Error('Invalid WSB_GRAPH_VERSION');
   if (!Number.isInteger(dataMaxBytes) || dataMaxBytes < 0) throw new Error('WSB_DATA_MAX_BYTES must be a non-negative integer (0 disables rotation)');
-  if (!Number.isInteger(dataKeepFiles) || dataKeepFiles < 1) throw new Error('WSB_DATA_KEEP_FILES must be a positive integer');
+  // Minimum 2 (live file + one archive). 1 would make rotation delete the very
+  // message that triggered it, which contradicts the retention contract; to turn
+  // rotation off entirely, set WSB_DATA_MAX_BYTES=0.
+  if (!Number.isInteger(dataKeepFiles) || dataKeepFiles < 2) throw new Error('WSB_DATA_KEEP_FILES must be an integer >= 2 (live file plus at least one archive); set WSB_DATA_MAX_BYTES=0 to disable rotation');
   return {
     port, mode, graphVersion, zylosDir, dataMaxBytes, dataKeepFiles,
     verifyToken: env.WSB_VERIFY_TOKEN || '',
