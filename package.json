@@ -1,6 +1,6 @@
 {
   "name": "zylos-wsb",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Minimal WhatsApp Business Cloud API channel demo for Zylos",
   "type": "module",

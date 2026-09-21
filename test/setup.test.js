@@ -64,7 +64,9 @@ test('native install hook preserves global credentials and starts with c4 defaul
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('WSB_') && key !== 'ZYLOS_DIR'));
   const output = execFileSync(process.execPath, [path.join(f.skill, 'scripts', 'setup.js')], { env: { ...env, ZYLOS_DIR: f.zylosDir }, encoding: 'utf8' });
   assert.match(output, /No public domain/);
-  for (const secret of ['fake-global-token', 'fake-global-secret', 'fake-global-verify']) assert.equal(output.includes(secret), false);
+  for (const secret of ['fake-global-token', 'fake-global-secret']) assert.equal(output.includes(secret), false);
+  // The inherited verify token must reach the user; they cannot read the file themselves.
+  assert.ok(output.includes('fake-global-verify'));
   const localConfig = fs.readFileSync(path.join(f.skill, '.env'), 'utf8');
   assert.doesNotMatch(localConfig, /^WSB_(?:ACCESS_TOKEN|APP_SECRET|PHONE_NUMBER_ID|VERIFY_TOKEN)=/m);
   // Startup finds the selected custom instance even without ZYLOS_DIR in the process env.
@@ -133,6 +135,12 @@ test('fresh install shows actionable missing settings; after filling them it pas
   assert.match(output, /npm run check/);
   assert.match(output, /API 测试页/);
   assert.match(output, /App settings/);
+  // The user is told, by name, which values only they can fetch from Meta.
+  assert.match(output, /developers\.facebook\.com/);
+  for (const name of ['WSB_ACCESS_TOKEN', 'WSB_PHONE_NUMBER_ID', 'WSB_APP_SECRET']) {
+    assert.ok(output.includes(`  - ${name}：`));
+  }
+  assert.match(output, /不需要 App ID/);
   const pending = spawnSync(process.execPath, [check], { env, encoding: 'utf8' });
   assert.equal(pending.status, 1);
   assert.match(pending.stdout, /待填写（必填）/);
@@ -147,9 +155,12 @@ test('fresh install shows actionable missing settings; after filling them it pas
   assert.doesNotMatch(ready, /待填写（必填）/);
   assert.match(checked, /Local configuration OK/);
   assert.equal(fs.readFileSync(file, 'utf8'), configured);
-  for (const value of ['private-demo-access', 'private-demo-secret', '123456789', verifyToken]) {
+  for (const value of ['private-demo-access', 'private-demo-secret', '123456789']) {
     assert.ok(!`${output}${ready}${checked}`.includes(value));
   }
+  // The generated verify token is handed over, before and after the credentials are filled in.
+  for (const printed of [output, ready]) assert.ok(printed.includes(verifyToken));
+  assert.match(ready, /messages/);
 });
 
 test('configuration guide honors receive-only mode and does not call an invalid phone ID ready', t => {

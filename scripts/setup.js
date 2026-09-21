@@ -56,8 +56,9 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import
     const { ready } = printConfigurationGuide(config);
     printWebhookInfo(config);
     if (ready) {
-      console.log('[wsb] 下一步：确认 Channel 已启动，将上面的回调地址及 Verify Token 填入 Meta，再测试真实收发。');
-      console.log('[wsb] 标准 zylos add 会继续启动服务；本机源码调试使用 npm start。');
+      console.log('[wsb] 下一步：确认 Channel 已启动，将上面的回调地址及 Verify token 填入 Meta 并点「验证并保存」。');
+      console.log('[wsb] 保存后必须再订阅 Webhook 的 messages 字段：验证通过 ≠ 会推消息，漏订阅不报错、消息永远不来。');
+      console.log('[wsb] 两步都完成后再测试真实收发。标准 zylos add 会继续启动服务；本机源码调试使用 npm start。');
     } else {
       console.log('[wsb] 配置完成前无法正常收发。补齐后若使用 PM2：pm2 restart zylos-wsb；本机源码调试：npm start。');
     }

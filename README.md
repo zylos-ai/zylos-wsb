@@ -54,14 +54,14 @@ npm run webhook
 | `WSB_ACCESS_TOKEN` | 安装时提供，API 测试页的访问令牌；临时令牌过期后需更新 |
 | `WSB_PHONE_NUMBER_ID` | Phone number ID，不能填手机号、App ID 或 WABA ID |
 | `WSB_APP_SECRET` | App settings → Basic → App secret |
-| `WSB_VERIFY_TOKEN` | 安装时自动生成到 Channel 的 `.env`；如果 Zylos 已有此项则沿用。稍后在 Meta 填相同值 |
+| `WSB_VERIFY_TOKEN` | 安装时自动生成到 Channel 的 `.env`；如果 Zylos 已有此项则沿用。安装输出会直接打印这个值，稍后在 Meta 填相同值 |
 | `WSB_MODE` | 默认 `c4`，由 Zylos 回复；`echo` 用于排查收发，`log` 只记录 |
 
 凭证读取顺序为进程环境、Channel 的 `.env`、Zylos 的 `.env`。新建本地配置的空凭证项保持注释，不会覆盖安装时收集的全局凭证。需要本地覆盖时取消对应项的注释并填入值。重复运行安装 hook 会保留现有 `.env`，不重新生成 Token。
 
 安装结束会逐项显示「已配置 / 待填写」，提供获取位置和实际 `.env` 文件路径。缺少凭证时，状态为「Channel 文件已就位，配置尚未完成」；先编辑提示的文件，取消缺失项前面的 `#` 并填值，保存后运行 `npm run check`。已配置项无需重填，已有 `.env` 不要用模板覆盖。检查通过后，启动或重启 Channel，再去 Meta 填回调。
 
-Zylos 代装时，应把这份清单展示给用户，并询问缺失项，或让用户直接编辑 `.env`；凭证不能在安装总结中回显。终端安装使用 Zylos 原有的配置输入提示，post-install hook 不再打开额外输入框，避免自动安装等待 stdin。若终端安装时跳过了必填项，服务的配置验证会阻止正常启动；补齐后用 `pm2 restart zylos-wsb` 重试。
+Zylos 代装时，应把这份清单展示给用户，并询问缺失项，或让用户直接编辑 `.env`；`WSB_ACCESS_TOKEN` 和 `WSB_APP_SECRET` 不能在安装总结中回显。唯一的例外是 `WSB_VERIFY_TOKEN`：它由本地生成、要交给 Meta，安装输出会打印它，并且**必须把这个值告诉用户**，否则用户无法完成 Meta 的回调验证。安装输出还会列出需要用户去 `https://developers.facebook.com/` 取的凭证项（不含 App ID，本 Channel 不使用 App ID）。终端安装使用 Zylos 原有的配置输入提示，post-install hook 不再打开额外输入框，避免自动安装等待 stdin。若终端安装时跳过了必填项，服务的配置验证会阻止正常启动；补齐后用 `pm2 restart zylos-wsb` 重试。
 
 ## 本机调试 / 没有 Zylos 公网域名
 
@@ -93,7 +93,9 @@ Callback URL: https://<你的公网域名>/whatsapp/webhook
 Verify token: WSB_VERIFY_TOKEN 的实际值
 ```
 
-Verify Token 默认保存在 Channel 的私有 `.env`，不会打印到安装日志。如果安装时沿用了 Zylos 的值，从 Zylos `.env` 读取。先确认 Channel 服务正在运行，再到 Meta 验证并保存；安装不会自动修改 Meta 控制台。
+Verify Token 保存在 Channel 的私有 `.env`，同时由 `npm run setup` 和 `npm run webhook` 直接打印出来，和回调地址成对给出，代装的 Agent 应把它原样交给用户。如果安装时沿用了 Zylos 的值，打印的也是该值。先确认 Channel 服务正在运行，再到 Meta 验证并保存；安装不会自动修改 Meta 控制台。
+
+> 打印 Verify Token 是有意为之：它由本地生成、方向是「本 Channel → Meta」，不是用户的凭证；入站回调的真实性由 App Secret 的 HMAC 签名校验，泄露 Verify Token 至多只能通过一次 GET 握手。Access Token 与 App Secret 则始终不打印。
 
 在 Meta 验证并保存回调后，还要完成两层订阅：
 

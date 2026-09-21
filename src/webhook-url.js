@@ -43,6 +43,8 @@ export function printWebhookInfo(config) {
       : `[wsb] Matching Zylos route not found. Install with zylos add, or proxy /whatsapp/webhook to http://127.0.0.1:${config.port}/whatsapp/webhook with your HTTPS server.`);
     console.log('[wsb] URL is derived from Zylos settings; DNS, TLS and external reachability have not been tested.');
   }
-  console.log('[wsb] Meta Verify token: use WSB_VERIFY_TOKEN from the channel .env (or Zylos .env if inherited).');
+  console.log(config.verifyToken
+    ? `[wsb] Meta Verify token（与上面的回调地址成对填写）：${config.verifyToken}`
+    : '[wsb] Meta Verify token 尚未生成：在 Channel 目录运行 npm run setup 生成后再填 Meta。');
   return info;
 }
