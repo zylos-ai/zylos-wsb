@@ -131,7 +131,9 @@ test('fresh install shows actionable missing settings; after filling them it pas
     assert.ok(output.includes(`${name}：待填写（必填）`));
   }
   assert.match(output, /WSB_VERIFY_TOKEN：已配置/);
-  assert.ok(output.includes(path.join(f.root, '.env')));
+  // setup.js resolves its root with realpathSync, so it prints the real path.
+  // Asserting the lexical path fails wherever the temp dir sits behind a symlink.
+  assert.ok(output.includes(path.join(fs.realpathSync(f.root), '.env')));
   assert.match(output, /npm run check/);
   assert.match(output, /API 测试页/);
   assert.match(output, /App settings/);
