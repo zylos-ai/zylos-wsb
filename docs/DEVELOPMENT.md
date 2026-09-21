@@ -3,13 +3,22 @@
 ## 不连接 Meta 的本地验证
 
 ```sh
-npm run check:syntax   # 语法检查
+npm run check:syntax   # 语法检查（每个文件一个进程，见下）
 npm test               # 单元测试
 npm run demo           # 端到端本地模拟
 ```
 
 `demo` 使用临时 Webhook、模拟 Meta API 和模拟 C4 子进程，验证签名、接收及回复格式。
 **无需凭证，不连接真实 Meta / Zylos，不发送真实消息。**
+
+`check:syntax` 是 `scripts/check-syntax.js`，覆盖 `src/`、`scripts/`、`test/` 加
+`ecosystem.config.cjs`，**逐个文件起一个 `node --check` 进程**。不要改回
+`find … -exec node --check {} +`：`node --check` 只解析第一个参数，其余当成脚本参数，
+整批会在第二个文件起有语法错误时仍然退出 0；换成 `-exec … \;` 也不行，`find` 的退出码
+不反映被执行命令的退出码。两种写法实测都会漏报。
+
+唯一需要连网的命令是 `npm run diagnose`（只读核对 Token 与号码是否仍然有效），
+它不属于上面这套离线验证，CI 也不跑。
 
 这三条都不依赖任何环境变量。测试用例断言的是 `realpathSync` 规范化之后的真实路径，
 因此在 `/tmp` 是软链的机器上也能直接跑——**不需要设置 `TMPDIR`**。
