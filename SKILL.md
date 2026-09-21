@@ -1,6 +1,6 @@
 ---
 name: wsb
-version: 0.1.3
+version: 0.2.0
 description: Minimal official WhatsApp Business Cloud API channel. Receive customer DMs and reply through the business phone number.
 type: communication
 lifecycle:
